@@ -1,0 +1,177 @@
+group 'com.nielsen.automation'
+version '1.0'
+
+apply plugin: 'groovy'
+apply plugin: 'java'
+
+repositories {
+    mavenCentral()
+}
+
+configurations {
+    testCompile.transitive = true
+}
+
+
+// The drivers we want to use
+def drivers = ["androidNexus5","androidGalaxyS6","iOSiPhone5"]
+
+String timeStamp = new Date().format("dd-MM-yyyy-HH-mm-ss")
+def tasksMap = getTaskMap()
+
+dependencies {
+
+    groovy group: 'org.codehaus.groovy', name: 'groovy-all', version: '2.0.5'
+
+    def gebVersion = "0.9.0"
+    def seleniumVersion = "2.43.0"
+    def appiumVersion = "3.1.0"
+
+    compile "org.gebish:geb-testng:$gebVersion"
+    compile "org.seleniumhq.selenium:selenium-java:$seleniumVersion"
+
+    //jar for appium
+    compile "io.appium:java-client:$appiumVersion"
+
+    compile "com.googlecode.json-simple:json-simple:1.1.1"
+    compile "javax.mail:mail:1.4.6"
+    compile "org.jsoup:jsoup:1.7.2"
+    compile "org.apache.poi:poi-ooxml:3.9"
+    compile "net.sf.opencsv:opencsv:2.3"
+    compile "org.im4java:im4java:1.4.0"
+    compile "net.sourceforge.jtds:jtds:1.3.1"
+    compile "log4j:log4j:1.2.17"
+    compile "org.json:json:20090211"
+    compile "org.testng:testng:6.9.6"
+
+    //jars for reportng
+/*    compile "org.uncommons:reportng:1.1.4"
+    compile "velocity:velocity:1.4"
+    compile "com.google.inject:guice:4.0"*/
+
+    drivers.each { driver ->
+        testCompile group: 'org.seleniumhq.selenium', name: 'selenium-java', version: "$seleniumVersion"
+    }
+}
+
+/*
+For each driver in the list the following code defines task from the taskMap created by reading the properties file
+ */
+drivers.each{driver ->
+    tasksMap.each {String taskName,Map properties ->
+        task "${driver}${taskName}"(type: Test, dependsOn: [classes,testClasses]) {
+
+            //clear temp directory
+            delete "$buildDir/tmp"
+            delete "$buildDir/test-results"
+
+            //always run the task
+            outputs.upToDateWhen { false }
+
+            //set the path for report and results directory
+            systemProperty "geb.build.reportsDir", reporting.file("$name/geb")
+            String testReportDirPath = "$reportsDir\\$name-$timeStamp"
+            testReportDir = file(testReportDirPath)
+            testResultsDir = file("$buildDir/test-results/$name")
+            systemProperty "gradle.test.report.dir", testReportDir
+
+            //set logger path
+            systemProperty "loggerspath", testReportDir.toString()+"/log.txt".replace('/',File.separator)
+            systemProperty "test.logger.configured", "true"
+
+            //set env and build name
+            systemProperty "geb.env", driver
+            systemProperty "test.build.name", "$name-$timeStamp"
+
+            def propertyMap = getPropertyMap(taskName,properties)
+
+            propertyMap.each { key, value ->
+                systemProperty key, value
+            }
+
+            testLogging.showStandardStreams = true
+            minHeapSize = "128m"
+            maxHeapSize = "512m"
+
+            // set JVM arguments for the test JVM(s)
+            jvmArgs '-XX:MaxPermSize=512m'
+        }
+    }
+}
+
+/**
+ * Returns the map of property key,value pairs that needs to be assigned to a task
+ * @param taskName
+ * @return
+ */
+    Map getPropertyMap(String taskName = "", Map properties = [:]) {
+        Map propertyMap = [:]
+        propertyMap.putAll(properties)
+        System.properties.each { String key, value ->
+            if (key.startsWith("test.")) {
+                if (key.endsWith(".timeout")) {
+                    String timeoutDriver = key.replace("test.", "").replace(".timeout", "")
+                    if (timeoutDriver.contentEquals(taskName) || key.contentEquals("test.timeout"))
+                        propertyMap.put("test.timeout", value)
+                } else {
+                    propertyMap.put(key, value)
+                }
+            }
+        }
+
+        String rootDir = new File(".").getCanonicalPath()
+        String resourceFilePath = rootDir + "/src/test/resources/build.properties".replace('/', File.separator)
+        Properties prop = new Properties()
+        prop.load(new FileInputStream(resourceFilePath))
+        prop.each { key, value ->
+            if (System.getProperty(key) == null) {
+                if (!propertyMap.containsKey(key)) {
+                    propertyMap.put(key, value)
+                }
+            } else {
+                propertyMap.put(key, System.getProperty(key))
+            }
+        }
+        return propertyMap
+    }
+
+/**
+ * Collects all the properties file from the folder gradle_tasks and create a map of taskname and the
+ * specified properties mentioned in the said properties file.
+ * @return - Map of taskname and the properties that needs to be assigned to the said task.
+ */
+    Map getTaskMap() {
+        String rootDir = new File(".").getCanonicalPath()
+        String sep = File.separator
+        Map tasks = [:]
+        File gradleDir = new File(rootDir + sep + "gradle_tasks")
+        File[] propList = gradleDir.listFiles(new FilenameFilter() {
+            @Override
+            boolean accept(File dir, String name) {
+                if (name.endsWith(".properties"))
+                    return true
+                else
+                    return false  //To change body of implemented methods use File | Settings | File Templates.
+            }
+        })
+        propList.each { File propFile ->
+            String fileName = propFile.getName().replace(".properties", "")
+            String taskName = fileName.substring(0, 1).toUpperCase() + fileName.substring(1)
+            Map taskProperties = [:]
+            def prop = new Properties()
+            prop.load(new FileInputStream(propFile))
+            prop.each { String key, String value ->
+                taskProperties.put(key, value)
+            }
+            tasks.put(taskName, taskProperties)
+        }
+        return tasks
+    }
+
+tasks.withType(Test){
+    useTestNG {
+        useDefaultListeners = true   //Set to false to enable ReportNg reporting
+        // includeGroups 'Dsimple'
+        suites file('src/test/resources/testng.xml')
+    }
+}
