@@ -1,0 +1,4 @@
+EnvironmentName,PlatformType,DeviceName,Browser,PlatformVersion,App,AppPackage,AppActivitiy
+androidNexus5,Android,Nexus5,Browser,5.0.1,,,
+androidGalaxyS6,Android,GalaxyS6,Browser,5.0.1,,,
+iOSiPhone5,iOS,iPhone 5,safari,8.2,,,
